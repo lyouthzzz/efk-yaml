@@ -1,8 +1,8 @@
 # K8S集群elasticsearch-fluentbit-kibana部署方案
 
-## fluent-bit
+## fluent-bit [中文文档](https://hulining.gitbook.io/fluentbit/) | [英文文档](https://docs.fluentbit.io/manual/)
 
-Fluent Bit 必须作为 DaemonSet 部署，这样就可以在 Kubernetes 集群的每个节点上使用它。首先，请使用以下命令来创建名称空间，服务帐号和角色设置(namespace, serviceaccount, role)
+Fluent Bit 建议作为 DaemonSet 部署，这样就可以在 Kubernetes 集群的每个节点上使用它。首先，请使用以下命令来创建名称空间，服务帐号和角色设置(namespace, serviceaccount, role)
 
 ### 部署
 ```
