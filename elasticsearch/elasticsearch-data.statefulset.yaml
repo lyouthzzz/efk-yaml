@@ -1,0 +1,109 @@
+# elasticsearch-data.configmap.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: logging
+  name: elasticsearch-data-config
+  labels:
+    app: elasticsearch
+    role: data
+data:
+  elasticsearch.yml: |-
+    cluster.name: ${CLUSTER_NAME}
+    node.name: ${NODE_NAME}
+    discovery.seed_hosts: ${NODE_LIST}
+    cluster.initial_master_nodes: ${MASTER_NODES}
+
+    network.host: 0.0.0.0
+
+    node:
+      master: false
+      data: true
+      ingest: false
+
+    xpack.security.enabled: true
+    xpack.monitoring.collection.enabled: false
+---
+
+# elasticsearch-data.service.yaml 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: logging
+  name: elasticsearch-data
+  labels:
+    app: elasticsearch
+    role: data
+spec:
+  ports:
+  - port: 9300
+    name: transport
+  selector:
+    app: elasticsearch
+    role: data
+---
+
+# elasticsearch-data.statefulset.yaml
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: logging
+  name: elasticsearch-data
+  labels:
+    app: elasticsearch
+    role: data
+spec:
+  serviceName: "elasticsearch-data"
+  selector:
+    matchLabels:
+      app: elasticsearch
+      role: data
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        role: data
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: elasticsearch-data
+        image: hub-docker-h.tianrang-inc.com/cloud/elasticsearch:7.8.0
+        env:
+        - name: CLUSTER_NAME
+          value: elasticsearch
+        - name: NODE_NAME
+          value: elasticsearch-data
+        - name: NODE_LIST
+          value: elasticsearch-master,elasticsearch-data,elasticsearch-client
+        - name: MASTER_NODES
+          value: elasticsearch-master
+        - name: "ES_JAVA_OPTS"
+          value: "-Xms1024m -Xmx1024m"
+        ports:
+        - containerPort: 9300
+          name: transport
+        volumeMounts:
+        - name: config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          readOnly: true
+          subPath: elasticsearch.yml
+        - name: elasticsearch-data-persistent-storage
+          mountPath: /usr/share/elasticsearch/data
+      volumes:
+      - name: config
+        configMap:
+          name: elasticsearch-data-config
+  volumeClaimTemplates:
+  - metadata:
+      name: elasticsearch-data-persistent-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: dynamic-ceph-rbd 
+      resources:
+        requests:
+          storage: 500Gi
+---
