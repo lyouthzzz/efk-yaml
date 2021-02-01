@@ -55,7 +55,7 @@ curl -XPUT -u elastic:${password} 'http://localhost:9200/_xpack/security/user/el
 ### 忘记管理员密码的重置方案
 1. 创建一个管理员账户
 ```
-bin/elasticsearch-users useradd admin -p admin -r superuser
+bin/elasticsearch-users useradd admin -p admin123 -r superuser
 ```
 2. 使用创建的管理员密码重置
 ```
