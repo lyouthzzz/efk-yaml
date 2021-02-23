@@ -1,0 +1,191 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: logging
+  labels:
+    app: logstash
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+  logstash.conf: |
+    # all input will come from filebeat, no local logs
+    input {
+      kafka {
+            bootstrap_servers => "${KAFKA_HOSTS}"
+            topics => [ "${KAFKA_TOPIC}" ]
+            heartbeat_interval_ms => "1000"
+            poll_timeout_ms => "10000"
+            session_timeout_ms => "120000"
+            request_timeout_ms => "130000"
+            max_poll_records => 3000
+            partition_assignment_strategy => "org.apache.kafka.clients.consumer.RoundRobinAssignor"
+            codec => "json"
+            consumer_threads => 10
+        }
+    }
+    output {
+        stdout {
+            codec => dots
+        }
+        elasticsearch {
+            hosts => [ "${ES_HOSTS}" ]
+            user => "${ES_USER}"
+            password => "${ES_PASSWORD}"
+            index => "logging-%{+yyyy.MM.dd}"
+        }
+    }
+  jvm.options: |
+    ## JVM configuration
+
+    # Xms represents the initial size of total heap space
+    # Xmx represents the maximum size of total heap space
+
+    -Xms8g
+    -Xmx8g
+
+    ################################################################
+    ## Expert settings
+    ################################################################
+    ##
+    ## All settings below this section are considered
+    ## expert settings. Don't tamper with them unless
+    ## you understand what you are doing
+    ##
+    ################################################################
+
+    ## GC configuration
+    8-13:-XX:+UseConcMarkSweepGC
+    8-13:-XX:CMSInitiatingOccupancyFraction=75
+    8-13:-XX:+UseCMSInitiatingOccupancyOnly
+
+    ## Locale
+    # Set the locale language
+    #-Duser.language=en
+
+    # Set the locale country
+    #-Duser.country=US
+
+    # Set the locale variant, if any
+    #-Duser.variant=
+
+    ## basic
+
+    # set the I/O temp directory
+    #-Djava.io.tmpdir=$HOME
+
+    # set to headless, just in case
+    -Djava.awt.headless=true
+
+    # ensure UTF-8 encoding by default (e.g. filenames)
+    -Dfile.encoding=UTF-8
+
+    # use our provided JNA always versus the system one
+    #-Djna.nosys=true
+
+    # Turn on JRuby invokedynamic
+    -Djruby.compile.invokedynamic=true
+    # Force Compilation
+    -Djruby.jit.threshold=0
+    # Make sure joni regexp interruptability is enabled
+    -Djruby.regexp.interruptible=true
+
+    ## heap dumps
+
+    # generate a heap dump when an allocation from the Java heap fails
+    # heap dumps are created in the working directory of the JVM
+    -XX:+HeapDumpOnOutOfMemoryError
+
+    # specify an alternative path for heap dumps
+    # ensure the directory exists and has sufficient space
+    #-XX:HeapDumpPath=${LOGSTASH_HOME}/heapdump.hprof
+
+    ## GC logging
+    #-XX:+PrintGCDetails
+    #-XX:+PrintGCTimeStamps
+    #-XX:+PrintGCDateStamps
+    #-XX:+PrintClassHistogram
+    #-XX:+PrintTenuringDistribution
+    #-XX:+PrintGCApplicationStoppedTime
+
+    # log GC status to a file with time stamps
+    # ensure the directory exists
+    #-Xloggc:${LS_GC_LOG_FILE}
+
+    # Entropy source for randomness
+    -Djava.security.egd=file:/dev/urandom
+
+    # Copy the logging context from parent threads to children
+    -Dlog4j2.isThreadContextMapInheritable=true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: logging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+      - name: logstash
+        image: hub-docker-h.tianrang-inc.com/cloud/logstash:7.8.0
+        ports:
+        - containerPort: 5044
+        env:
+        - name: ES_HOSTS
+          value: "http://elasticsearch-client:9200"
+        - name: ES_USER
+          value: "elastic"
+        - name: ES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-pw-elastic
+              key: password
+        - name: KAFKA_HOSTS
+          value: "kfk-kafka.kafka:9092"
+        - name: KAFKA_TOPIC
+          value: "logging"
+        volumeMounts:
+          - name: config-volume
+            mountPath: /usr/share/logstash/config
+          - name: logstash-pipeline-volume
+            mountPath: /usr/share/logstash/pipeline
+      volumes:
+      - name: config-volume
+        configMap:
+          name: logstash-config
+          items:
+            - key: logstash.yml
+              path: logstash.yml
+            - key: jvm.options
+              path: jvm.options
+      - name: logstash-pipeline-volume
+        configMap:
+          name: logstash-config
+          items:
+            - key: logstash.conf
+              path: logstash.conf
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: logstash
+  namespace: logging
+spec:
+  selector:
+    app: logstash
+  ports:
+  - protocol: TCP
+    port: 9600
+    targetPort: 9600
+  type: ClusterIP
+---
